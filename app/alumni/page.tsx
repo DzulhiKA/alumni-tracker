@@ -189,8 +189,9 @@ function AlumniCard({ alumni, isMe }: { alumni: Profile; isMe: boolean }) {
   }
 
   return (
-    <div
-      className={`card p-5 hover:shadow-md transition-shadow ${isMe ? "ring-2 ring-blue-500" : ""}`}
+    <Link
+      href={`/alumni/${alumni.id}`}
+      className={`card p-5 hover:shadow-md hover:-translate-y-0.5 transition-all block ${isMe ? "ring-2 ring-blue-500" : ""}`}
     >
       {isMe && (
         <span className="text-xs bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full mb-3 inline-block">
@@ -276,14 +277,9 @@ function AlumniCard({ alumni, isMe }: { alumni: Profile; isMe: boolean }) {
           </a>
         )}
         {isMe && (
-          <Link
-            href="/dashboard/profile"
-            className="text-xs text-blue-600 hover:underline ml-auto"
-          >
-            Edit profil
-          </Link>
+          <span className="text-xs text-blue-600 ml-auto">Edit profil →</span>
         )}
       </div>
-    </div>
+    </Link>
   )
 }
