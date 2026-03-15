@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { STATUS_LABELS } from '@/lib/database.types'
+import AddAlumniModal from '@/components/AddAlumniModal'
 import type { Profile, CurrentStatus } from '@/lib/database.types'
 
 interface AdminTableProps {
@@ -54,9 +55,9 @@ export default function AdminTable({ alumni, completenessMap, currentAdminId }: 
 
   return (
     <div className="card overflow-hidden">
-      <div className="p-5 border-b border-slate-100 flex items-center gap-4">
+      <div className="p-5 border-b border-slate-100 flex items-center gap-4 flex-wrap">
         <h2 className="font-bold text-slate-800">Daftar Alumni</h2>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-3 flex-wrap">
           <span className="text-sm text-slate-500">{filtered.length} alumni</span>
           <input
             value={search}
@@ -64,6 +65,7 @@ export default function AdminTable({ alumni, completenessMap, currentAdminId }: 
             placeholder="Cari nama, NIM, prodi..."
             className="input-field w-64"
           />
+          <AddAlumniModal />
         </div>
       </div>
 
