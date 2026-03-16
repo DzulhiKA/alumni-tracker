@@ -4,6 +4,7 @@ import Link from "next/link"
 import { STATUS_LABELS } from "@/lib/database.types"
 import type { Profile, CurrentStatus } from "@/lib/database.types"
 import Navbar from "@/components/Navbar"
+import FilterSelect from "@/components/FilterSelect"
 
 // Paksa selalu render dinamis — tidak di-prerender saat build Vercel
 export const dynamic = "force-dynamic"
@@ -114,6 +115,17 @@ export default async function AlumniPage({ searchParams }: PageProps) {
 
   const hasFilters = activeFilters.length > 0
   const viewMode = params.view || "grid"
+
+  // Helper: buat object hidden params untuk FilterSelect (exclude key tertentu)
+  const buildHidden = (
+    exclude: string,
+    p: Record<string, string | undefined>,
+  ) =>
+    Object.fromEntries(
+      Object.entries(p).filter(
+        ([k, v]) => k !== exclude && v !== undefined && v !== "",
+      ),
+    ) as Record<string, string>
 
   // Helper buat URL dengan override param tertentu
   const buildUrl = (overrides: Record<string, string | undefined>) => {
@@ -253,7 +265,7 @@ export default async function AlumniPage({ searchParams }: PageProps) {
                   value: f,
                   label: f.replace("Fakultas ", ""),
                 }))}
-                params={params}
+                hiddenParams={buildHidden("faculty", params)}
               />
               <FilterSelect
                 name="year"
@@ -263,7 +275,7 @@ export default async function AlumniPage({ searchParams }: PageProps) {
                   value: String(y),
                   label: String(y),
                 }))}
-                params={params}
+                hiddenParams={buildHidden("year", params)}
               />
               <FilterSelect
                 name="status"
@@ -273,27 +285,27 @@ export default async function AlumniPage({ searchParams }: PageProps) {
                   value: k,
                   label: v,
                 }))}
-                params={params}
+                hiddenParams={buildHidden("status", params)}
               />
               <FilterSelect
                 name="work_city"
                 value={params.work_city}
                 label="Semua Kota Kerja"
                 options={uniqueCities.map((c) => ({ value: c, label: c }))}
-                params={params}
+                hiddenParams={buildHidden("work_city", params)}
               />
               <FilterSelect
                 name="work_field"
                 value={params.work_field}
                 label="Semua Bidang"
                 options={uniqueFields.map((f) => ({ value: f, label: f }))}
-                params={params}
+                hiddenParams={buildHidden("work_field", params)}
               />
               <FilterSelect
                 name="sort"
                 value={params.sort || "year_desc"}
-                label="Urutkan"
                 showDefault={false}
+                label="Urutkan"
                 options={[
                   { value: "year_desc", label: "📅 Angkatan Terbaru" },
                   { value: "year_asc", label: "📅 Angkatan Lama" },
@@ -301,7 +313,7 @@ export default async function AlumniPage({ searchParams }: PageProps) {
                   { value: "name_desc", label: "🔤 Nama Z–A" },
                   { value: "updated", label: "🕐 Baru Diperbarui" },
                 ]}
-                params={params}
+                hiddenParams={buildHidden("sort", params)}
               />
             </div>
 
@@ -376,50 +388,6 @@ export default async function AlumniPage({ searchParams }: PageProps) {
         </div>
       </main>
     </div>
-  )
-}
-
-// ============ Filter Select — tiap punya form sendiri, auto-submit ============
-function FilterSelect({
-  name,
-  value,
-  label,
-  options,
-  params,
-  showDefault = true,
-}: {
-  name: string
-  value?: string
-  label: string
-  options: { value: string; label: string }[]
-  params: Record<string, string | undefined>
-  showDefault?: boolean
-}) {
-  const safeParams = params ?? {}
-  return (
-    <form method="GET" action="/alumni">
-      {/* Kirim semua param lain sebagai hidden input */}
-      {Object.entries(safeParams)
-        .filter(([k, v]) => k !== name && v !== undefined && v !== "")
-        .map(([k, v]) => (
-          <input key={k} type="hidden" name={k} value={v} />
-        ))}
-      <select
-        name={name}
-        defaultValue={value ?? ""}
-        onChange={(e) =>
-          (e.target.closest("form") as HTMLFormElement)?.submit()
-        }
-        className={`input-field text-sm w-full ${value ? "border-blue-300 bg-blue-50 text-blue-700" : ""}`}
-      >
-        {showDefault && <option value="">{label}</option>}
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    </form>
   )
 }
 
