@@ -9,7 +9,7 @@ import Navbar from "@/components/Navbar"
 export const dynamic = "force-dynamic"
 
 interface PageProps {
-  searchParams: Promise<{
+  searchParams: {
     q?: string
     faculty?: string
     year?: string
@@ -18,12 +18,12 @@ interface PageProps {
     work_field?: string
     sort?: string
     view?: string
-  }>
+  }
 }
 
 export default async function AlumniPage({ searchParams }: PageProps) {
-  // Await searchParams dengan fallback object kosong
-  const params = (await searchParams) ?? {}
+  // Fallback ke object kosong jika undefined
+  const params = searchParams ?? {}
 
   const supabase = createServerSupabaseClient()
   const {

@@ -6,11 +6,11 @@ import { STATUS_LABELS } from "@/lib/database.types"
 import type { CurrentStatus } from "@/lib/database.types"
 
 interface PageProps {
-  params: Promise<{ id: string }>
+  params: { id: string }
 }
 
 export default async function AlumniDetailPage({ params }: PageProps) {
-  const { id } = await params
+  const { id } = params
   const supabase = createServerSupabaseClient()
 
   // Cek user login
