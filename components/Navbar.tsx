@@ -27,6 +27,9 @@ export default function Navbar({ profile }: NavbarProps) {
         { href: "/dashboard", label: "Beranda" },
         { href: "/alumni", label: "Data Alumni" },
         { href: "/admin", label: "Panel Admin" },
+        { href: "/admin/statistik", label: "Statistik" },
+        { href: "/admin/tracking", label: "🔍 Tracking" },
+        { href: "/admin/import", label: "📥 Import" },
       ]
     : [
         { href: "/dashboard", label: "Beranda" },
@@ -70,12 +73,12 @@ export default function Navbar({ profile }: NavbarProps) {
           </Link>
 
           {/* Nav Links */}
-          <div className="hidden md:flex items-center gap-1">
+          <div className="hidden md:flex items-center gap-1 overflow-x-auto">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
                   pathname === link.href
                     ? "bg-blue-50 text-blue-700"
                     : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"
