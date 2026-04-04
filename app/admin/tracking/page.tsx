@@ -39,11 +39,11 @@ export default async function TrackingPage({ searchParams }: PageProps) {
   const offset = (page - 1) * PAGE_SIZE
 
   // Build query
+  // Sesudah (BENAR - filter dulu baru range)
   let query = supabase
     .from("alumni_records")
     .select("*", { count: "exact" })
     .order("nama_lulusan", { ascending: true })
-    .range(offset, offset + PAGE_SIZE - 1)
 
   if (params.q)
     query = query.or(`nama_lulusan.ilike.%${params.q}%,nim.ilike.%${params.q}%`)
@@ -51,6 +51,8 @@ export default async function TrackingPage({ searchParams }: PageProps) {
   if (params.fakultas) query = query.eq("fakultas", params.fakultas)
   if (params.prodi) query = query.eq("program_studi", params.prodi)
   if (params.tahun) query = query.eq("tahun_masuk", params.tahun)
+
+  query = query.range(offset, offset + PAGE_SIZE - 1)
 
   const { data: records, count } = await query
 
