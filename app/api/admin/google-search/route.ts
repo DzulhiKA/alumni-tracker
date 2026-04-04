@@ -115,7 +115,9 @@ export async function POST(request: Request) {
       .eq("id", recordId)
 
     // 4. Lakukan pencarian Google
-    const query = nim ? `"${nama}" "${nim}"` : `"${nama}" alumni`
+    const query = nim
+      ? `"${nama}" "${nim}" site:linkedin.com OR site:instagram.com OR site:facebook.com`
+      : `"${nama}" alumni site:linkedin.com OR site:instagram.com OR site:facebook.com`
     const results = await googleSearch(query)
 
     // 5. Tentukan status
