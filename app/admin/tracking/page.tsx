@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar"
 import TrackingTable from "./TrackingTable"
 
 export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 interface PageProps {
   searchParams: {
@@ -38,12 +39,14 @@ export default async function TrackingPage({ searchParams }: PageProps) {
   const page = Math.max(1, parseInt(params.page || "1") || 1)
   const offset = (page - 1) * PAGE_SIZE
 
-  // Build query
-  // Sesudah (BENAR - filter dulu baru range)
+  console.log("=== PAGINATION DEBUG ===")
+  console.log("PAGE:", page, "OFFSET:", offset, "PAGE_SIZE:", PAGE_SIZE)
+
   let query = supabase
     .from("alumni_records")
     .select("*", { count: "exact" })
     .order("nama_lulusan", { ascending: true })
+    .order("id", { ascending: true })
 
   if (params.q)
     query = query.or(`nama_lulusan.ilike.%${params.q}%,nim.ilike.%${params.q}%`)
@@ -54,9 +57,12 @@ export default async function TrackingPage({ searchParams }: PageProps) {
 
   query = query.range(offset, offset + PAGE_SIZE - 1)
 
-  const { data: records, count } = await query
+  const { data: records, count, error } = await query
 
-  // Stats
+  console.log("COUNT:", count, "RECORDS:", records?.length, "ERROR:", error)
+  console.log("FIRST RECORD:", records?.[0]?.nama_lulusan)
+  console.log("LAST RECORD:", records?.[records.length - 1]?.nama_lulusan)
+
   const { count: totalAll } = await supabase
     .from("alumni_records")
     .select("*", { count: "exact", head: true })
@@ -73,7 +79,6 @@ export default async function TrackingPage({ searchParams }: PageProps) {
     .select("*", { count: "exact", head: true })
     .eq("is_claimed", true)
 
-  // Filter options
   const { data: fakultasRows } = await supabase
     .from("alumni_records")
     .select("fakultas")
@@ -104,7 +109,6 @@ export default async function TrackingPage({ searchParams }: PageProps) {
       <Navbar profile={myProfile} />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-6">
-          {/* Header */}
           <div className="flex items-start justify-between flex-wrap gap-4">
             <div>
               <div className="flex items-center gap-2 text-sm text-slate-400 mb-1">
@@ -132,7 +136,6 @@ export default async function TrackingPage({ searchParams }: PageProps) {
             </Link>
           </div>
 
-          {/* KPI Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="rounded-2xl border bg-blue-50 border-blue-100 p-5">
               <span className="text-2xl">👥</span>
@@ -164,7 +167,6 @@ export default async function TrackingPage({ searchParams }: PageProps) {
             </div>
           </div>
 
-          {/* Info Google Search */}
           {!process.env.NEXT_PUBLIC_GOOGLE_SEARCH_ENABLED && (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
               <span className="text-xl flex-shrink-0">⚠️</span>
@@ -191,7 +193,6 @@ export default async function TrackingPage({ searchParams }: PageProps) {
             </div>
           )}
 
-          {/* Table */}
           <TrackingTable
             records={records || []}
             total={count || 0}
