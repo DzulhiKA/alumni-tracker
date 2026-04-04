@@ -5,32 +5,27 @@ import { NextResponse } from "next/server"
 
 export const maxDuration = 30
 
-// Helper: cari di Google Custom Search
-async function googleSearch(query: string): Promise<{
+async function serpSearch(query: string): Promise<{
   linkedin?: string
   instagram?: string
   facebook?: string
   tiktok?: string
   raw: any[]
 }> {
-  const apiKey = process.env.GOOGLE_API_KEY
-  const cx = process.env.GOOGLE_SEARCH_ENGINE_ID
+  const apiKey = process.env.SERP_API_KEY
+  if (!apiKey) throw new Error("SERP_API_KEY belum diset")
 
-  if (!apiKey || !cx)
-    throw new Error("GOOGLE_API_KEY atau GOOGLE_SEARCH_ENGINE_ID belum diset")
-
-  const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=10`
+  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&api_key=${apiKey}&num=10`
   const res = await fetch(url)
 
   if (!res.ok) {
     const err = await res.json()
-    throw new Error(err?.error?.message || "Google Search API error")
+    throw new Error(err?.error || "SerpAPI error")
   }
 
   const data = await res.json()
-  const items = data.items || []
+  const items = data.organic_results || []
 
-  // Ekstrak URL per platform dari hasil
   const result = {
     linkedin: "",
     instagram: "",
@@ -55,7 +50,6 @@ async function googleSearch(query: string): Promise<{
 
 export async function POST(request: Request) {
   try {
-    // 1. Verifikasi admin
     const cookieStore = cookies()
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -91,7 +85,6 @@ export async function POST(request: Request) {
     if (adminProfile?.role !== "admin")
       return NextResponse.json({ error: "Akses ditolak" }, { status: 403 })
 
-    // 2. Ambil data
     const { recordId, nama, nim } = await request.json()
     if (!recordId || !nama)
       return NextResponse.json(
@@ -105,7 +98,6 @@ export async function POST(request: Request) {
       { auth: { autoRefreshToken: false, persistSession: false } },
     )
 
-    // 3. Tandai sedang dicari
     await supabaseAdmin
       .from("alumni_records")
       .update({
@@ -114,13 +106,12 @@ export async function POST(request: Request) {
       })
       .eq("id", recordId)
 
-    // 4. Lakukan pencarian Google
     const query = nim
       ? `"${nama}" "${nim}" site:linkedin.com OR site:instagram.com OR site:facebook.com`
       : `"${nama}" alumni site:linkedin.com OR site:instagram.com OR site:facebook.com`
-    const results = await googleSearch(query)
 
-    // 5. Tentukan status
+    const results = await serpSearch(query)
+
     const found = !!(
       results.linkedin ||
       results.instagram ||
@@ -128,14 +119,12 @@ export async function POST(request: Request) {
       results.tiktok
     )
 
-    // 6. Update record dengan hasil
     const updateData: Record<string, any> = {
       search_status: found ? "found" : "not_found",
       last_searched_at: new Date().toISOString(),
       search_results: results.raw,
     }
 
-    // Hanya isi URL jika belum ada data (tidak overwrite yang sudah diisi manual)
     if (
       results.linkedin &&
       !(await hasValue(supabaseAdmin, recordId, "linkedin_url"))
@@ -171,7 +160,7 @@ export async function POST(request: Request) {
       tiktok: results.tiktok || null,
     })
   } catch (err: any) {
-    console.error("Google search error:", err)
+    console.error("SerpAPI search error:", err)
     return NextResponse.json(
       { error: err.message || "Server error" },
       { status: 500 },
@@ -179,7 +168,6 @@ export async function POST(request: Request) {
   }
 }
 
-// Helper: cek apakah field sudah punya nilai
 async function hasValue(
   client: any,
   id: string,
