@@ -1,7 +1,4 @@
-import {
-  createServerSupabaseClient,
-  createAdminSupabaseClient,
-} from "@/lib/supabase-server"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import Navbar from "@/components/Navbar"
@@ -26,7 +23,6 @@ const PAGE_SIZE = 50
 export default async function TrackingPage({ searchParams }: PageProps) {
   const params = searchParams ?? {}
   const supabase = createServerSupabaseClient()
-  const supabaseAdmin = createAdminSupabaseClient()
 
   const {
     data: { user },
@@ -43,7 +39,10 @@ export default async function TrackingPage({ searchParams }: PageProps) {
   const page = Math.max(1, parseInt(params.page || "1") || 1)
   const offset = (page - 1) * PAGE_SIZE
 
-  let query = supabaseAdmin
+  console.log("=== PAGINATION DEBUG ===")
+  console.log("PAGE:", page, "OFFSET:", offset, "PAGE_SIZE:", PAGE_SIZE)
+
+  let query = supabase
     .from("alumni_records")
     .select("*", { count: "exact" })
     .order("nama_lulusan", { ascending: true })
@@ -58,33 +57,37 @@ export default async function TrackingPage({ searchParams }: PageProps) {
 
   query = query.range(offset, offset + PAGE_SIZE - 1)
 
-  const { data: records, count } = await query
+  const { data: records, count, error } = await query
 
-  const { count: totalAll } = await supabaseAdmin
+  console.log("COUNT:", count, "RECORDS:", records?.length, "ERROR:", error)
+  console.log("FIRST RECORD:", records?.[0]?.nama_lulusan)
+  console.log("LAST RECORD:", records?.[records.length - 1]?.nama_lulusan)
+
+  const { count: totalAll } = await supabase
     .from("alumni_records")
     .select("*", { count: "exact", head: true })
-  const { count: totalFound } = await supabaseAdmin
+  const { count: totalFound } = await supabase
     .from("alumni_records")
     .select("*", { count: "exact", head: true })
     .eq("search_status", "found")
-  const { count: totalPending } = await supabaseAdmin
+  const { count: totalPending } = await supabase
     .from("alumni_records")
     .select("*", { count: "exact", head: true })
     .eq("search_status", "pending")
-  const { count: totalClaimed } = await supabaseAdmin
+  const { count: totalClaimed } = await supabase
     .from("alumni_records")
     .select("*", { count: "exact", head: true })
     .eq("is_claimed", true)
 
-  const { data: fakultasRows } = await supabaseAdmin
+  const { data: fakultasRows } = await supabase
     .from("alumni_records")
     .select("fakultas")
     .not("fakultas", "is", null)
-  const { data: prodiRows } = await supabaseAdmin
+  const { data: prodiRows } = await supabase
     .from("alumni_records")
     .select("program_studi")
     .not("program_studi", "is", null)
-  const { data: tahunRows } = await supabaseAdmin
+  const { data: tahunRows } = await supabase
     .from("alumni_records")
     .select("tahun_masuk")
     .not("tahun_masuk", "is", null)
