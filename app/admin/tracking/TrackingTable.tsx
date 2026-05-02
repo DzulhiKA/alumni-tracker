@@ -109,6 +109,8 @@ export default function TrackingTable({
           recordId: record.id,
           nama: record.nama_lulusan,
           nim: record.nim,
+          prodi: record.program_studi,
+          fakultas: record.fakultas,
         }),
       })
       const data = await res.json()

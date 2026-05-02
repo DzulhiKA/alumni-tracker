@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     if (adminProfile?.role !== "admin")
       return NextResponse.json({ error: "Akses ditolak" }, { status: 403 })
 
-    const { recordId, nama, nim } = await request.json()
+    const { recordId, nama, nim, prodi, fakultas } = await request.json()
     if (!recordId || !nama)
       return NextResponse.json(
         { error: "recordId dan nama wajib" },
@@ -106,9 +106,12 @@ export async function POST(request: Request) {
       })
       .eq("id", recordId)
 
-    const query = nim
-      ? `"${nama}" "${nim}" site:linkedin.com OR site:instagram.com OR site:facebook.com`
-      : `"${nama}" alumni site:linkedin.com OR site:instagram.com OR site:facebook.com`
+    const queryParts = [`"${nama}"`]
+    if (prodi) queryParts.push(`"${prodi}"`)
+    else if (fakultas) queryParts.push(`"${fakultas}"`)
+    else queryParts.push("alumni OR mahasiswa")
+
+    const query = `${queryParts.join(" ")} (site:linkedin.com/in/ OR site:instagram.com)`
 
     const results = await serpSearch(query)
 
