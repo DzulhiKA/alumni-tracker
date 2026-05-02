@@ -122,7 +122,6 @@ export async function POST(request: Request) {
     const updateData: Record<string, any> = {
       search_status: found ? "found" : "not_found",
       last_searched_at: new Date().toISOString(),
-      search_results: results.raw,
     }
 
     if (

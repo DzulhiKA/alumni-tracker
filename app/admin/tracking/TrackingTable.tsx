@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 
 interface AlumniRecord {
@@ -77,6 +77,11 @@ export default function TrackingTable({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<Partial<AlumniRecord>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
+
+  // Fix: Update localRecords when records prop changes due to pagination
+  useEffect(() => {
+    setLocalRecords(records)
+  }, [records])
 
   const buildUrl = (overrides: Record<string, string | undefined>) => {
     const merged = { ...params, ...overrides }
