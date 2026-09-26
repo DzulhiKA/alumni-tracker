@@ -10,7 +10,7 @@ export async function middleware(request: NextRequest) {
     {
       cookies: {
         getAll() { return request.cookies.getAll() },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
@@ -26,13 +26,7 @@ export async function middleware(request: NextRequest) {
 
   // Proteksi route /dashboard & /admin - harus login
   if ((pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) && !user) {
-    const redirectWithCookies = (url: string) => {
-      const redirectResponse = NextResponse.redirect(new URL(url, request.url))
-      supabaseResponse.cookies.getAll().forEach((cookie) => {
-        redirectResponse.cookies.set(cookie.name, cookie.value, { ...options })
-      })
-      return redirectResponse
-    }
+    return NextResponse.redirect(new URL('/auth/login', request.url))
   }
 
   // Proteksi route /admin - harus role admin 

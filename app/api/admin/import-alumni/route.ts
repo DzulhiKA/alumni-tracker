@@ -17,7 +17,7 @@ export async function POST(request: Request) {
           getAll() {
             return cookieStore.getAll()
           },
-          setAll(list) {
+          setAll(list: Array<{ name: string; value: string; options?: any }>) {
             list.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options),
             )
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     // 3. Gunakan service role untuk insert massal
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { autoRefreshToken: false, persistSession: false } },
     )
 
@@ -80,13 +80,13 @@ export async function POST(request: Request) {
     const payload = validRows.map((r) => ({
       nama_lulusan: r.nama_lulusan.trim(),
       nim: r.nim.trim(),
-      tahun_masuk: r.tahun_masuk || null,
+      tahun_masuk: r.tahun_masuk ? String(r.tahun_masuk) : null,
       tanggal_lulus: r.tanggal_lulus || null,
       fakultas: r.fakultas?.trim() || null,
       program_studi: r.program_studi?.trim() || null,
     }))
 
-    const { data, error } = await supabaseAdmin
+    const { data } = await supabaseAdmin
       .from("alumni_records")
       .upsert(payload, {
         onConflict: "nim",
@@ -100,14 +100,14 @@ export async function POST(request: Request) {
 
     // 6. Update log jika logId diberikan
     if (logId) {
-      await supabaseAdmin
-        .rpc("increment_import_log", {
+      try {
+        await (supabaseAdmin.rpc as any)("increment_import_log", {
           p_log_id: logId,
           p_imported: imported,
           p_skipped: skipped,
           p_errors: errors,
         })
-        .catch(() => {}) // ignore jika RPC belum ada
+      } catch {}
     }
 
     return NextResponse.json({ imported, skipped, errors })

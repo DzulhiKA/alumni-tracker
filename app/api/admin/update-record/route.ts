@@ -46,12 +46,18 @@ export async function POST(request: Request) {
 
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { autoRefreshToken: false, persistSession: false } },
     )
 
     const payload: Record<string, any> = {}
     const allowedFields = [
+      "nama_lulusan",
+      "nim",
+      "tahun_masuk",
+      "tanggal_lulus",
+      "fakultas",
+      "program_studi",
       "email",
       "no_hp",
       "linkedin_url",
@@ -65,7 +71,9 @@ export async function POST(request: Request) {
       "company_website",
       "company_instagram",
       "company_linkedin",
+      "search_status",
       "is_verified",
+      "is_claimed",
     ]
 
     for (const field of allowedFields) {
@@ -74,14 +82,16 @@ export async function POST(request: Request) {
       }
     }
 
-    // Jika ada data sosmed, update status jadi 'found'
-    const hasSosmed = [
-      "linkedin_url",
-      "instagram_url",
-      "facebook_url",
-      "tiktok_url",
-    ].some((f) => payload[f])
-    if (hasSosmed) payload.search_status = "found"
+    // Jika ada data sosmed dan search_status belum diset spesifik, update status jadi 'found'
+    if (!updateData.search_status) {
+      const hasSosmed = [
+        "linkedin_url",
+        "instagram_url",
+        "facebook_url",
+        "tiktok_url",
+      ].some((f) => payload[f])
+      if (hasSosmed) payload.search_status = "found"
+    }
 
     const { error } = await supabaseAdmin
       .from("alumni_records")
@@ -91,7 +101,7 @@ export async function POST(request: Request) {
     if (error)
       return NextResponse.json({ error: error.message }, { status: 400 })
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, updated: payload })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

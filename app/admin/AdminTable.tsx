@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { createClient } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 import { STATUS_LABELS } from "@/lib/database.types"
@@ -24,22 +24,54 @@ export default function AdminTable({
   const supabase = createClient()
 
   const [search, setSearch] = useState("")
+  const [filterStatus, setFilterStatus] = useState("")
+  const [filterFaculty, setFilterFaculty] = useState("")
+  const [filterYear, setFilterYear] = useState("")
   const [deleting, setDeleting] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [togglingVisibility, setTogglingVisibility] = useState<string | null>(
     null,
   )
 
-  const filtered = alumni.filter((a) => {
-    if (!search) return true
-    const q = search.toLowerCase()
-    return (
-      a.full_name?.toLowerCase().includes(q) ||
-      a.nim?.toLowerCase().includes(q) ||
-      a.email?.toLowerCase().includes(q) ||
-      a.major?.toLowerCase().includes(q)
-    )
-  })
+  const faculties = useMemo(() => {
+    return Array.from(new Set(alumni.map((a) => a.faculty).filter(Boolean))).sort() as string[]
+  }, [alumni])
+
+  const years = useMemo(() => {
+    return Array.from(new Set(alumni.map((a) => a.graduation_year).filter(Boolean))).sort(
+      (a, b) => (b as number) - (a as number),
+    ) as number[]
+  }, [alumni])
+
+  const filtered = useMemo(() => {
+    return alumni.filter((a) => {
+      if (search.trim()) {
+        const q = search.toLowerCase().trim()
+        const matchesSearch =
+          a.full_name?.toLowerCase().includes(q) ||
+          a.nim?.toLowerCase().includes(q) ||
+          a.email?.toLowerCase().includes(q) ||
+          a.major?.toLowerCase().includes(q) ||
+          a.faculty?.toLowerCase().includes(q) ||
+          a.current_company?.toLowerCase().includes(q)
+        if (!matchesSearch) return false
+      }
+
+      if (filterStatus && a.current_status !== filterStatus) {
+        return false
+      }
+
+      if (filterFaculty && a.faculty !== filterFaculty) {
+        return false
+      }
+
+      if (filterYear && a.graduation_year !== parseInt(filterYear, 10)) {
+        return false
+      }
+
+      return true
+    })
+  }, [alumni, search, filterStatus, filterFaculty, filterYear])
 
   const handleDelete = async (id: string) => {
     if (confirmDelete !== id) {
@@ -65,21 +97,92 @@ export default function AdminTable({
   }
 
   return (
-    <div className="card overflow-hidden">
-      <div className="p-5 border-b border-slate-100 flex items-center gap-4 flex-wrap">
-        <h2 className="font-bold text-slate-800">Daftar Alumni</h2>
-        <div className="ml-auto flex items-center gap-3 flex-wrap">
-          <span className="text-sm text-slate-500">
-            {filtered.length} alumni
-          </span>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari nama, NIM, prodi..."
-            className="input-field w-64"
-          />
-          <ExportCSVModal alumni={alumni} />
-          <AddAlumniModal />
+    <div className="card overflow-hidden shadow-sm border border-slate-200/80 bg-white">
+      {/* Header & Filter Controls */}
+      <div className="p-5 border-b border-slate-100 space-y-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="font-bold text-slate-800 text-lg">Daftar Akun Alumni</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Menampilkan <span className="font-semibold text-blue-600">{filtered.length}</span> dari {alumni.length} alumni
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <ExportCSVModal alumni={filtered} />
+            <AddAlumniModal />
+          </div>
+        </div>
+
+        {/* Filter Toolbar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 pt-1">
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">🔍</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cari nama, NIM, email, prodi..."
+              className="input-field pl-8 text-xs py-2 w-full bg-slate-50 focus:bg-white"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div>
+            <select
+              value={filterFaculty}
+              onChange={(e) => setFilterFaculty(e.target.value)}
+              className={`input-field text-xs py-2 w-full font-medium ${
+                filterFaculty ? "border-blue-500 bg-blue-50 text-blue-800" : "bg-slate-50"
+              }`}
+            >
+              <option value="">Semua Fakultas</option>
+              {faculties.map((f) => (
+                <option key={f} value={f}>
+                  {f.replace("Fakultas ", "")}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value)}
+              className={`input-field text-xs py-2 w-full font-medium ${
+                filterYear ? "border-blue-500 bg-blue-50 text-blue-800" : "bg-slate-50"
+              }`}
+            >
+              <option value="">Semua Angkatan</option>
+              {years.map((y) => (
+                <option key={y} value={String(y)}>
+                  Angkatan {y}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className={`input-field text-xs py-2 w-full font-medium ${
+                filterStatus ? "border-blue-500 bg-blue-50 text-blue-800" : "bg-slate-50"
+              }`}
+            >
+              <option value="">Semua Status</option>
+              {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -97,7 +200,7 @@ export default function AdminTable({
               ].map((h) => (
                 <th
                   key={h}
-                  className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide"
+                  className="text-left px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wide"
                 >
                   {h}
                 </th>
@@ -107,8 +210,10 @@ export default function AdminTable({
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-10 text-slate-400">
-                  Tidak ada data alumni
+                <td colSpan={6} className="text-center py-12 text-slate-400">
+                  <div className="text-3xl mb-2">📋</div>
+                  <p className="font-semibold text-slate-600">Tidak ada data alumni</p>
+                  <p className="text-xs mt-0.5">Coba sesuaikan kata kunci pencarian atau filter</p>
                 </td>
               </tr>
             ) : (
@@ -117,7 +222,7 @@ export default function AdminTable({
                 return (
                   <tr
                     key={alum.id}
-                    className="hover:bg-slate-50 transition-colors"
+                    className="hover:bg-slate-50/80 transition-colors"
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -139,7 +244,7 @@ export default function AdminTable({
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      <p>{alum.major || "-"}</p>
+                      <p className="font-medium text-slate-800">{alum.major || "-"}</p>
                       <p className="text-xs text-slate-400">
                         {alum.faculty || "-"} · {alum.graduation_year || "-"}
                       </p>
@@ -159,7 +264,13 @@ export default function AdminTable({
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-1.5 bg-slate-100 rounded-full max-w-16">
                           <div
-                            className={`h-1.5 rounded-full ${pct >= 80 ? "bg-emerald-500" : pct >= 50 ? "bg-amber-400" : "bg-red-400"}`}
+                            className={`h-1.5 rounded-full ${
+                              pct >= 80
+                                ? "bg-emerald-500"
+                                : pct >= 50
+                                  ? "bg-amber-400"
+                                  : "bg-red-400"
+                            }`}
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -177,6 +288,7 @@ export default function AdminTable({
                         className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${
                           alum.is_visible ? "bg-emerald-500" : "bg-slate-300"
                         }`}
+                        title={alum.is_visible ? "Profil tampil ke publik" : "Profil disembunyikan"}
                       >
                         <span
                           className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all shadow-sm ${

@@ -45,6 +45,35 @@ export interface CareerHistory {
   created_at: string
 }
 
+export interface AlumniRecord {
+  id: string
+  nama_lulusan: string
+  nim: string | null
+  tahun_masuk: string | null
+  tanggal_lulus: string | null
+  fakultas: string | null
+  program_studi: string | null
+  email: string | null
+  no_hp: string | null
+  linkedin_url: string | null
+  instagram_url: string | null
+  facebook_url: string | null
+  tiktok_url: string | null
+  tempat_bekerja: string | null
+  alamat_bekerja: string | null
+  posisi: string | null
+  tipe_pekerjaan: string | null
+  company_website: string | null
+  company_instagram: string | null
+  company_linkedin: string | null
+  search_status: string
+  last_searched_at: string | null
+  is_claimed: boolean
+  is_verified: boolean
+  created_at?: string
+  updated_at?: string
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -52,11 +81,19 @@ export interface Database {
         Row: Profile
         Insert: Partial<Profile> & { id: string }
         Update: Partial<Profile>
+        Relationships: []
       }
       career_history: {
         Row: CareerHistory
-        Insert: Omit<CareerHistory, 'id' | 'created_at'> & { id?: string }
+        Insert: Partial<CareerHistory> & { profile_id: string; job_title: string; company: string }
         Update: Partial<CareerHistory>
+        Relationships: []
+      }
+      alumni_records: {
+        Row: AlumniRecord
+        Insert: Partial<AlumniRecord> & { nama_lulusan: string }
+        Update: Partial<AlumniRecord>
+        Relationships: []
       }
     }
     Views: {
@@ -68,7 +105,20 @@ export interface Database {
           role: UserRole
           updated_at: string
         }
+        Relationships: []
       }
+    }
+    Functions: {
+      [key: string]: {
+        Args: Record<string, any>
+        Returns: any
+      }
+    }
+    Enums: {
+      [key: string]: any
+    }
+    CompositeTypes: {
+      [key: string]: any
     }
   }
 }

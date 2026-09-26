@@ -27,7 +27,7 @@ export default function ImportPage() {
   const [step, setStep] = useState<"upload" | "preview" | "importing" | "done">(
     "upload",
   )
-  const [rows, setRows] = useState<AlumniRow[]>([])
+  const [rows, setRows] = useState<Record<string, any>[]>([])
   const [fileName, setFileName] = useState("")
   const [stats, setStats] = useState<ImportStats>({
     total: 0,
@@ -113,7 +113,7 @@ export default function ImportPage() {
       setStats((s) => ({ ...s, total: totalRows }))
 
       // Simpan semua rows untuk import
-      const allRows: AlumniRow[] = data
+      const allRows: Record<string, any>[] = data
         .slice(1)
         .filter((r) => r.some((c) => c !== null && c !== undefined && c !== ""))
         .map((row) => {

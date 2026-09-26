@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 
 interface AlumniRecord {
@@ -42,17 +43,17 @@ interface Props {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  pending: "bg-slate-100 text-slate-500",
-  searching: "bg-blue-100 text-blue-600",
+  pending: "bg-amber-100 text-amber-700",
   found: "bg-emerald-100 text-emerald-700",
-  not_found: "bg-red-100 text-red-500",
+  not_found: "bg-rose-100 text-rose-600",
 }
+
 const STATUS_LABEL: Record<string, string> = {
-  pending: "Belum dicari",
-  searching: "Mencari...",
-  found: "Ditemukan",
-  not_found: "Tidak ditemukan",
+  pending: "⏳ Belum Dilacak",
+  found: "✅ Ditemukan",
+  not_found: "❌ Belum Ditemukan",
 }
+
 const TIPE_LABEL: Record<string, string> = {
   pns: "PNS / ASN",
   swasta: "Swasta",
@@ -70,21 +71,72 @@ export default function TrackingTable({
   uniqueProdi,
   uniqueTahun,
 }: Props) {
-  const [searching, setSearching] = useState<string | null>(null)
-  const [searchingAll, setSearchingAll] = useState(false)
-  const [searchProgress, setSearchProgress] = useState(0)
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
   const [localRecords, setLocalRecords] = useState<AlumniRecord[]>(records)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<Partial<AlumniRecord>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
 
-  // Fix: Update localRecords when records prop changes due to pagination
+  // Local filter states for smooth instant feedback
+  const [searchVal, setSearchVal] = useState(params.q ?? "")
+  const [statusVal, setStatusVal] = useState(params.status ?? "")
+  const [fakultasVal, setFakultasVal] = useState(params.fakultas ?? "")
+  const [prodiVal, setProdiVal] = useState(params.prodi ?? "")
+  const [tahunVal, setTahunVal] = useState(params.tahun ?? "")
+
   useEffect(() => {
     setLocalRecords(records)
   }, [records])
 
-  const buildUrl = (overrides: Record<string, string | undefined>) => {
-    const merged = { ...params, ...overrides }
+  useEffect(() => {
+    setSearchVal(params.q ?? "")
+    setStatusVal(params.status ?? "")
+    setFakultasVal(params.fakultas ?? "")
+    setProdiVal(params.prodi ?? "")
+    setTahunVal(params.tahun ?? "")
+  }, [params])
+
+  // Tampilkan notifikasi singkat
+  const showToast = (msg: string) => {
+    setToastMessage(msg)
+    setTimeout(() => {
+      setToastMessage(null)
+    }, 3000)
+  }
+
+  // Trigger navigasi filter cepat tanpa reload browser
+  const applyFilter = (overrides: Record<string, string | undefined>) => {
+    const nextParams = {
+      q: searchVal,
+      status: statusVal,
+      fakultas: fakultasVal,
+      prodi: prodiVal,
+      tahun: tahunVal,
+      page: "1", // reset ke halaman 1 saat filter berubah
+      ...overrides,
+    }
+
+    const qs = Object.entries(nextParams)
+      .filter(([, v]) => v !== undefined && v !== "")
+      .map(([k, v]) => `${k}=${encodeURIComponent(v!)}`)
+      .join("&")
+
+    const url = `/admin/tracking${qs ? `?${qs}` : ""}`
+    startTransition(() => {
+      router.push(url)
+    })
+  }
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    applyFilter({ q: searchVal })
+  }
+
+  const buildPageUrl = (targetPage: number) => {
+    const merged = { ...params, page: String(targetPage) }
     const qs = Object.entries(merged)
       .filter(([, v]) => v !== undefined && v !== "")
       .map(([k, v]) => `${k}=${encodeURIComponent(v!)}`)
@@ -92,80 +144,7 @@ export default function TrackingTable({
     return `/admin/tracking${qs ? `?${qs}` : ""}`
   }
 
-  // Trigger Google Search untuk 1 alumni
-  const triggerSearch = async (record: AlumniRecord) => {
-    setSearching(record.id)
-    setLocalRecords((prev) =>
-      prev.map((r) =>
-        r.id === record.id ? { ...r, search_status: "searching" } : r,
-      ),
-    )
-
-    try {
-      const res = await fetch("/api/admin/google-search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recordId: record.id,
-          nama: record.nama_lulusan,
-          nim: record.nim,
-          prodi: record.program_studi,
-          fakultas: record.fakultas,
-        }),
-      })
-      const data = await res.json()
-
-      if (res.ok) {
-        setLocalRecords((prev) =>
-          prev.map((r) =>
-            r.id === record.id
-              ? {
-                  ...r,
-                  search_status: data.found ? "found" : "not_found",
-                  linkedin_url: data.linkedin || r.linkedin_url,
-                  instagram_url: data.instagram || r.instagram_url,
-                  facebook_url: data.facebook || r.facebook_url,
-                  tiktok_url: data.tiktok || r.tiktok_url,
-                  last_searched_at: new Date().toISOString(),
-                }
-              : r,
-          ),
-        )
-      } else {
-        setLocalRecords((prev) =>
-          prev.map((r) =>
-            r.id === record.id ? { ...r, search_status: "pending" } : r,
-          ),
-        )
-        alert(`Error: ${data.error}`)
-      }
-    } catch {
-      setLocalRecords((prev) =>
-        prev.map((r) =>
-          r.id === record.id ? { ...r, search_status: "pending" } : r,
-        ),
-      )
-    }
-    setSearching(null)
-  }
-
-  // Cari semua pending di halaman ini
-  const triggerSearchAll = async () => {
-    const pending = localRecords.filter((r) => r.search_status === "pending")
-    if (!pending.length) return
-    setSearchingAll(true)
-
-    for (let i = 0; i < pending.length; i++) {
-      await triggerSearch(pending[i])
-      setSearchProgress(Math.round(((i + 1) / pending.length) * 100))
-      await new Promise((r) => setTimeout(r, 2000)) // 2 detik antar search
-    }
-
-    setSearchingAll(false)
-    setSearchProgress(0)
-  }
-
-  // Edit manual
+  // Edit manual alumni record
   const startEdit = (record: AlumniRecord) => {
     setEditingId(record.id)
     setEditForm({ ...record })
@@ -175,265 +154,432 @@ export default function TrackingTable({
     if (!editingId) return
     setSavingId(editingId)
 
-    const res = await fetch("/api/admin/update-record", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: editingId, data: editForm }),
-    })
+    try {
+      const res = await fetch("/api/admin/update-record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingId, data: editForm }),
+      })
 
-    if (res.ok) {
-      setLocalRecords((prev) =>
-        prev.map((r) =>
-          r.id === editingId ? ({ ...r, ...editForm } as AlumniRecord) : r,
-        ),
-      )
-      setEditingId(null)
-      setEditForm({})
-    } else {
       const d = await res.json()
-      alert(`Gagal simpan: ${d.error}`)
+
+      if (res.ok) {
+        setLocalRecords((prev) =>
+          prev.map((r) =>
+            r.id === editingId ? ({ ...r, ...editForm } as AlumniRecord) : r,
+          ),
+        )
+        setEditingId(null)
+        setEditForm({})
+        showToast("Data tracking alumni berhasil diperbarui!")
+      } else {
+        alert(`Gagal menyimpan: ${d.error || "Terjadi kesalahan"}`)
+      }
+    } catch (err: any) {
+      alert(`Terjadi kesalahan jaringan: ${err.message}`)
+    } finally {
+      setSavingId(null)
     }
-    setSavingId(null)
   }
 
-  const pendingCount = localRecords.filter(
-    (r) => r.search_status === "pending",
-  ).length
+  // Quick toggle status penelusuran (found/pending)
+  const quickToggleStatus = async (record: AlumniRecord) => {
+    const nextStatus = record.search_status === "found" ? "pending" : "found"
+    setLocalRecords((prev) =>
+      prev.map((r) =>
+        r.id === record.id ? { ...r, search_status: nextStatus } : r,
+      ),
+    )
+
+    try {
+      await fetch("/api/admin/update-record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: record.id,
+          data: { search_status: nextStatus },
+        }),
+      })
+      showToast(
+        `Status ${record.nama_lulusan} diubah ke ${
+          nextStatus === "found" ? "Ditemukan" : "Belum Dilacak"
+        }`,
+      )
+    } catch {
+      // rollback jika gagal
+      setLocalRecords((prev) =>
+        prev.map((r) =>
+          r.id === record.id ? { ...r, search_status: record.search_status } : r,
+        ),
+      )
+    }
+  }
+
+  // Quick toggle status verifikasi
+  const quickToggleVerified = async (record: AlumniRecord) => {
+    const nextVerified = !record.is_verified
+    setLocalRecords((prev) =>
+      prev.map((r) =>
+        r.id === record.id ? { ...r, is_verified: nextVerified } : r,
+      ),
+    )
+
+    try {
+      await fetch("/api/admin/update-record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: record.id,
+          data: { is_verified: nextVerified },
+        }),
+      })
+      showToast(
+        `Data ${record.nama_lulusan} ${
+          nextVerified ? "ditandai terverifikasi ✓" : "batal verifikasi"
+        }`,
+      )
+    } catch {
+      // rollback
+      setLocalRecords((prev) =>
+        prev.map((r) =>
+          r.id === record.id ? { ...r, is_verified: record.is_verified } : r,
+        ),
+      )
+    }
+  }
+
+  const activeFilters = [
+    params.q && {
+      key: "q",
+      label: `"${params.q}"`,
+      clear: () => {
+        setSearchVal("")
+        applyFilter({ q: "" })
+      },
+    },
+    params.status && {
+      key: "status",
+      label: `Status: ${STATUS_LABEL[params.status] || params.status}`,
+      clear: () => {
+        setStatusVal("")
+        applyFilter({ status: "" })
+      },
+    },
+    params.fakultas && {
+      key: "fakultas",
+      label: `Fakultas: ${params.fakultas}`,
+      clear: () => {
+        setFakultasVal("")
+        applyFilter({ fakultas: "" })
+      },
+    },
+    params.prodi && {
+      key: "prodi",
+      label: `Prodi: ${params.prodi}`,
+      clear: () => {
+        setProdiVal("")
+        applyFilter({ prodi: "" })
+      },
+    },
+    params.tahun && {
+      key: "tahun",
+      label: `Angkatan ${params.tahun}`,
+      clear: () => {
+        setTahunVal("")
+        applyFilter({ tahun: "" })
+      },
+    },
+  ].filter(Boolean) as { key: string; label: string; clear: () => void }[]
+
+  const clearAllFilters = () => {
+    setSearchVal("")
+    setStatusVal("")
+    setFakultasVal("")
+    setProdiVal("")
+    setTahunVal("")
+    startTransition(() => {
+      router.push("/admin/tracking")
+    })
+  }
 
   return (
     <div className="space-y-4">
-      {/* Filter & Search */}
-      <div className="card p-4 space-y-3">
-        <form
-          method="GET"
-          action="/admin/tracking"
-          className="flex gap-3 flex-wrap"
-        >
-          <input
-            name="q"
-            defaultValue={params.q ?? ""}
-            placeholder="Cari nama atau NIM..."
-            className="input-field flex-1 min-w-48"
-          />
-          {params.status && (
-            <input type="hidden" name="status" value={params.status} />
-          )}
-          {params.fakultas && (
-            <input type="hidden" name="fakultas" value={params.fakultas} />
-          )}
-          {params.prodi && (
-            <input type="hidden" name="prodi" value={params.prodi} />
-          )}
-          {params.tahun && (
-            <input type="hidden" name="tahun" value={params.tahun} />
-          )}
-          <button type="submit" className="btn-primary px-5 text-sm">
-            Cari
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-sm animate-fade-in border border-slate-700">
+          <span>✨</span>
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Filter & Search Panel Responsif */}
+      <div className="card p-5 space-y-3.5 shadow-sm border border-slate-200/80 bg-white">
+        {/* Search Bar */}
+        <form onSubmit={handleSearchSubmit} className="flex gap-2.5 flex-wrap sm:flex-nowrap">
+          <div className="relative flex-1 min-w-48">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
+              🔍
+            </span>
+            <input
+              value={searchVal}
+              onChange={(e) => setSearchVal(e.target.value)}
+              placeholder="Cari berdasarkan nama lulusan, NIM, atau tempat kerja..."
+              className="input-field pl-9 pr-8 text-sm w-full py-2.5 bg-slate-50 focus:bg-white"
+            />
+            {searchVal && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchVal("")
+                  applyFilter({ q: "" })
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={isPending}
+            className="btn-primary px-6 text-sm flex-shrink-0 font-medium py-2.5 shadow-sm"
+          >
+            {isPending ? "Memuat..." : "Cari Data"}
           </button>
         </form>
 
-        {/* Filter dropdowns */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {[
-            {
-              name: "fakultas",
-              label: "Semua Fakultas",
-              options: uniqueFakultas,
-            },
-            { name: "prodi", label: "Semua Prodi", options: uniqueProdi },
-            { name: "tahun", label: "Semua Angkatan", options: uniqueTahun },
-          ].map((f) => (
-            <form key={f.name} method="GET" action="/admin/tracking">
-              {Object.entries(params)
-                .filter(([k, v]) => k !== f.name && v)
-                .map(([k, v]) => (
-                  <input key={k} type="hidden" name={k} value={v} />
-                ))}
-              <select
-                name={f.name}
-                defaultValue={params[f.name] ?? ""}
-                onChange={(e) =>
-                  (e.target.closest("form") as HTMLFormElement)?.submit()
-                }
-                className={`input-field text-sm w-full ${params[f.name] ? "border-blue-300 bg-blue-50 text-blue-700" : ""}`}
-              >
-                <option value="">{f.label}</option>
-                {f.options.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            </form>
-          ))}
-
-          {/* Filter status */}
-          <form method="GET" action="/admin/tracking">
-            {Object.entries(params)
-              .filter(([k, v]) => k !== "status" && v)
-              .map(([k, v]) => (
-                <input key={k} type="hidden" name={k} value={v} />
-              ))}
+        {/* Dropdown Filters (Instant Change) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {/* Fakultas */}
+          <div>
             <select
-              name="status"
-              defaultValue={params.status ?? ""}
-              onChange={(e) =>
-                (e.target.closest("form") as HTMLFormElement)?.submit()
-              }
-              className={`input-field text-sm w-full ${params.status ? "border-blue-300 bg-blue-50 text-blue-700" : ""}`}
+              value={fakultasVal}
+              onChange={(e) => {
+                const val = e.target.value
+                setFakultasVal(val)
+                applyFilter({ fakultas: val })
+              }}
+              className={`input-field text-xs py-2 w-full font-medium ${
+                fakultasVal ? "border-blue-500 bg-blue-50 text-blue-800 font-semibold" : "bg-slate-50"
+              }`}
+            >
+              <option value="">Semua Fakultas</option>
+              {uniqueFakultas.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Program Studi */}
+          <div>
+            <select
+              value={prodiVal}
+              onChange={(e) => {
+                const val = e.target.value
+                setProdiVal(val)
+                applyFilter({ prodi: val })
+              }}
+              className={`input-field text-xs py-2 w-full font-medium ${
+                prodiVal ? "border-blue-500 bg-blue-50 text-blue-800 font-semibold" : "bg-slate-50"
+              }`}
+            >
+              <option value="">Semua Prodi</option>
+              {uniqueProdi.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Angkatan / Tahun Masuk */}
+          <div>
+            <select
+              value={tahunVal}
+              onChange={(e) => {
+                const val = e.target.value
+                setTahunVal(val)
+                applyFilter({ tahun: val })
+              }}
+              className={`input-field text-xs py-2 w-full font-medium ${
+                tahunVal ? "border-blue-500 bg-blue-50 text-blue-800 font-semibold" : "bg-slate-50"
+              }`}
+            >
+              <option value="">Semua Angkatan</option>
+              {uniqueTahun.map((t) => (
+                <option key={t} value={t}>
+                  Angkatan {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status Penelusuran */}
+          <div>
+            <select
+              value={statusVal}
+              onChange={(e) => {
+                const val = e.target.value
+                setStatusVal(val)
+                applyFilter({ status: val })
+              }}
+              className={`input-field text-xs py-2 w-full font-medium ${
+                statusVal ? "border-blue-500 bg-blue-50 text-blue-800 font-semibold" : "bg-slate-50"
+              }`}
             >
               <option value="">Semua Status</option>
-              <option value="pending">⏳ Belum Dicari</option>
-              <option value="found">✅ Ditemukan</option>
-              <option value="not_found">❌ Tidak Ditemukan</option>
+              <option value="pending">⏳ Belum Dilacak</option>
+              <option value="found">✅ Sosmed/Karir Ditemukan</option>
+              <option value="not_found">❌ Belum Ditemukan</option>
+              <option value="claimed">🔐 Sudah Klaim Akun</option>
+              <option value="verified">✓ Terverifikasi</option>
             </select>
-          </form>
+          </div>
         </div>
 
-        {/* Active filters */}
-        {Object.entries(params).some(([k, v]) => k !== "page" && v) && (
-          <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-100">
-            <span className="text-xs text-slate-400">Filter aktif:</span>
-            {Object.entries(params)
-              .filter(([k, v]) => k !== "page" && v)
-              .map(([k, v]) => (
-                <Link
-                  key={k}
-                  href={buildUrl({ [k]: undefined, page: "1" })}
-                  className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full hover:bg-red-50 hover:text-red-600 transition-all"
-                >
-                  {v} ✕
-                </Link>
-              ))}
-            <Link
-              href="/admin/tracking"
-              className="text-xs text-slate-400 hover:text-red-500 ml-1"
+        {/* Active Filter Chips */}
+        {activeFilters.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
+            <span className="text-xs text-slate-400 font-medium">Filter aktif:</span>
+            {activeFilters.map((f) => (
+              <button
+                key={f.key}
+                onClick={f.clear}
+                className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 hover:bg-red-50 hover:text-red-700 text-xs font-semibold px-2.5 py-1 rounded-full transition-all group border border-blue-200/50"
+              >
+                <span>{f.label}</span>
+                <span className="text-blue-400 group-hover:text-red-500 text-[11px]">✕</span>
+              </button>
+            ))}
+            <button
+              onClick={clearAllFilters}
+              className="text-xs text-slate-400 hover:text-red-600 ml-1 transition-colors underline font-medium"
             >
-              Hapus semua
-            </Link>
+              Reset semua
+            </button>
           </div>
         )}
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <p className="text-sm text-slate-500">
-          <span className="font-semibold text-slate-700">
-            {total.toLocaleString("id-ID")}
-          </span>{" "}
-          data ditemukan
-          {" · "}halaman {page} dari {totalPages}
+      {/* Toolbar Info */}
+      <div className="flex items-center justify-between flex-wrap gap-3 px-1">
+        <p className="text-sm text-slate-600">
+          Ditemukan <span className="font-bold text-slate-900">{total.toLocaleString("id-ID")}</span> data
+          {" · "}Halaman <span className="font-semibold text-slate-800">{page}</span> dari {totalPages}
         </p>
-        <div className="flex items-center gap-3">
-          {searchingAll && (
-            <div className="flex items-center gap-2 text-sm text-blue-600">
-              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              Mencari {searchProgress}%
-            </div>
-          )}
-          {pendingCount > 0 && !searchingAll && (
-            <button
-              onClick={triggerSearchAll}
-              className="btn-primary text-sm py-2 px-4 flex items-center gap-2"
-            >
-              🔍 Cari Semua Pending ({pendingCount})
-            </button>
-          )}
-        </div>
+        {isPending && (
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-200 animate-pulse">
+            <span>Memperbarui data...</span>
+          </div>
+        )}
       </div>
 
-      {/* Tabel */}
-      <div className="card overflow-hidden">
+      {/* Tabel Data Alumni Tracking */}
+      <div className="card overflow-hidden shadow-sm border border-slate-200/80 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-100">
+            <thead className="bg-slate-50/80 border-b border-slate-100">
               <tr>
                 {[
                   "Nama & NIM",
-                  "Prodi / Angkatan",
-                  "Kontak & Sosmed",
-                  "Pekerjaan",
-                  "Status",
+                  "Fakultas & Prodi",
+                  "Kontak & Media Sosial",
+                  "Pekerjaan & Instansi",
+                  "Status Tracking",
                   "Aksi",
                 ].map((h) => (
                   <th
                     key={h}
-                    className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap"
+                    className="px-4 py-3.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap"
                   >
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-slate-100">
               {localRecords.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-center py-16 text-slate-400">
                     <div className="text-4xl mb-3">📋</div>
-                    <p className="font-medium">Tidak ada data ditemukan</p>
-                    <p className="text-xs mt-1">Coba ubah filter pencarian</p>
+                    <p className="font-bold text-slate-700 text-base">Tidak ada data alumni tracking</p>
+                    <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci atau filter di atas</p>
+                    {activeFilters.length > 0 && (
+                      <button
+                        onClick={clearAllFilters}
+                        className="mt-3 inline-block text-xs font-semibold text-blue-600 hover:underline"
+                      >
+                        Reset Filter
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (
                 localRecords.map((record) => (
-                  <tr
-                    key={record.id}
-                    className="hover:bg-slate-50 transition-colors"
-                  >
+                  <tr key={record.id} className="hover:bg-slate-50/80 transition-colors group">
                     {/* Nama & NIM */}
-                    <td className="px-4 py-3 min-w-48">
-                      <p className="font-semibold text-slate-800 text-sm">
+                    <td className="px-4 py-3.5 min-w-48 align-top">
+                      <p className="font-bold text-slate-800 text-sm group-hover:text-blue-600 transition-colors">
                         {record.nama_lulusan}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-500 mt-0.5 font-mono">
                         {record.nim || "-"}
                       </p>
-                      {record.is_claimed && (
-                        <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full mt-1 inline-block">
-                          🔐 Akun aktif
-                        </span>
-                      )}
-                      {record.is_verified && (
-                        <span className="text-xs bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-full mt-1 ml-1 inline-block">
-                          ✓ Terverifikasi
-                        </span>
-                      )}
+                      <div className="flex gap-1.5 flex-wrap mt-1.5">
+                        {record.is_claimed && (
+                          <span className="text-[10px] bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">
+                            🔐 Akun Aktif
+                          </span>
+                        )}
+                        {record.is_verified && (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
+                            ✓ Terverifikasi
+                          </span>
+                        )}
+                      </div>
                     </td>
 
-                    {/* Prodi & Angkatan */}
-                    <td className="px-4 py-3 min-w-40">
-                      <p className="text-sm text-slate-700">
+                    {/* Prodi & Fakultas */}
+                    <td className="px-4 py-3.5 min-w-44 align-top">
+                      <p className="text-sm font-medium text-slate-800">
                         {record.program_studi || "-"}
                       </p>
-                      <p className="text-xs text-slate-400">
-                        {record.fakultas || ""}
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {record.fakultas || "-"}
                       </p>
-                      <p className="text-xs text-slate-400">
-                        Angkatan {record.tahun_masuk || "-"}
-                      </p>
+                      {record.tahun_masuk && (
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Angkatan {record.tahun_masuk}
+                        </p>
+                      )}
                     </td>
 
-                    {/* Kontak & Sosmed */}
-                    <td className="px-4 py-3 min-w-44">
+                    {/* Kontak & Media Sosial */}
+                    <td className="px-4 py-3.5 min-w-48 align-top">
                       {record.email && (
-                        <p className="text-xs text-slate-600 truncate max-w-40 mb-1">
-                          ✉️ {record.email}
+                        <p className="text-xs text-slate-600 truncate max-w-48 mb-1 flex items-center gap-1.5">
+                          <span>✉️</span>
+                          <span className="truncate">{record.email}</span>
                         </p>
                       )}
                       {record.no_hp && (
-                        <p className="text-xs text-slate-600 mb-1">
-                          📱 {record.no_hp}
+                        <p className="text-xs text-slate-600 mb-1 flex items-center gap-1.5 font-mono">
+                          <span>📱</span>
+                          <span>{record.no_hp}</span>
                         </p>
                       )}
-                      <div className="flex gap-1 flex-wrap mt-1">
+                      <div className="flex gap-1.5 flex-wrap mt-1.5">
                         {record.linkedin_url && (
                           <a
                             href={record.linkedin_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full hover:bg-blue-200 font-medium"
+                            className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-0.5 rounded-md font-semibold transition-all"
+                            title="LinkedIn"
                           >
-                            in
+                            LinkedIn ↗
                           </a>
                         )}
                         {record.instagram_url && (
@@ -441,9 +587,10 @@ export default function TrackingTable({
                             href={record.instagram_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full hover:bg-pink-200 font-medium"
+                            className="text-xs bg-pink-100 hover:bg-pink-200 text-pink-700 px-2 py-0.5 rounded-md font-semibold transition-all"
+                            title="Instagram"
                           >
-                            ig
+                            IG ↗
                           </a>
                         )}
                         {record.facebook_url && (
@@ -451,9 +598,10 @@ export default function TrackingTable({
                             href={record.facebook_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full hover:bg-indigo-200 font-medium"
+                            className="text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md font-semibold transition-all"
+                            title="Facebook"
                           >
-                            fb
+                            FB ↗
                           </a>
                         )}
                         {record.tiktok_url && (
@@ -461,37 +609,40 @@ export default function TrackingTable({
                             href={record.tiktok_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full hover:bg-slate-200 font-medium"
+                            className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-800 px-2 py-0.5 rounded-md font-semibold transition-all"
+                            title="TikTok"
                           >
-                            tt
+                            TikTok ↗
                           </a>
                         )}
                         {!record.linkedin_url &&
                           !record.instagram_url &&
                           !record.facebook_url &&
-                          !record.tiktok_url && (
+                          !record.tiktok_url &&
+                          !record.email &&
+                          !record.no_hp && (
                             <span className="text-xs text-slate-300 italic">
-                              Belum ada
+                              Belum ada data kontak
                             </span>
                           )}
                       </div>
                     </td>
 
                     {/* Pekerjaan */}
-                    <td className="px-4 py-3 min-w-40">
+                    <td className="px-4 py-3.5 min-w-44 align-top">
                       {record.tempat_bekerja ? (
                         <>
-                          <p className="text-sm text-slate-700 truncate max-w-40">
+                          <p className="text-sm font-semibold text-slate-800 truncate max-w-48">
                             {record.tempat_bekerja}
                           </p>
                           {record.posisi && (
-                            <p className="text-xs text-slate-500">
+                            <p className="text-xs text-slate-600 mt-0.5">
                               {record.posisi}
                             </p>
                           )}
                           {record.tipe_pekerjaan && (
                             <span
-                              className={`text-xs font-medium px-2 py-0.5 rounded-full mt-0.5 inline-block ${
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full mt-1.5 inline-block ${
                                 record.tipe_pekerjaan === "pns"
                                   ? "bg-blue-100 text-blue-700"
                                   : record.tipe_pekerjaan === "swasta"
@@ -499,57 +650,56 @@ export default function TrackingTable({
                                     : "bg-amber-100 text-amber-700"
                               }`}
                             >
-                              {TIPE_LABEL[record.tipe_pekerjaan] ||
-                                record.tipe_pekerjaan}
+                              {TIPE_LABEL[record.tipe_pekerjaan] || record.tipe_pekerjaan}
                             </span>
                           )}
                         </>
                       ) : (
                         <span className="text-xs text-slate-300 italic">
-                          Belum diisi
+                          Belum terdata
                         </span>
                       )}
                     </td>
 
-                    {/* Status */}
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${STATUS_BADGE[record.search_status] || "bg-slate-100 text-slate-400"}`}
+                    {/* Status Tracking */}
+                    <td className="px-4 py-3.5 align-top">
+                      <button
+                        type="button"
+                        onClick={() => quickToggleStatus(record)}
+                        title="Klik untuk ubah status secara cepat"
+                        className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap transition-transform hover:scale-105 ${
+                          STATUS_BADGE[record.search_status] || "bg-slate-100 text-slate-500"
+                        }`}
                       >
-                        {STATUS_LABEL[record.search_status] ||
-                          record.search_status}
-                      </span>
+                        {STATUS_LABEL[record.search_status] || record.search_status}
+                      </button>
                       {record.last_searched_at && (
-                        <p className="text-xs text-slate-300 mt-1">
-                          {new Date(record.last_searched_at).toLocaleDateString(
-                            "id-ID",
-                          )}
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          {new Date(record.last_searched_at).toLocaleDateString("id-ID")}
                         </p>
                       )}
                     </td>
 
                     {/* Aksi */}
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <button
-                          onClick={() => triggerSearch(record)}
-                          disabled={searching === record.id || searchingAll}
-                          className="text-xs font-medium text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-all disabled:opacity-40 whitespace-nowrap border border-blue-100"
-                        >
-                          {searching === record.id ? (
-                            <span className="flex items-center gap-1">
-                              <span className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin inline-block" />
-                              Mencari...
-                            </span>
-                          ) : (
-                            "🔍 Google Search"
-                          )}
-                        </button>
+                    <td className="px-4 py-3.5 align-top">
+                      <div className="flex flex-col gap-1.5">
                         <button
                           onClick={() => startEdit(record)}
-                          className="text-xs font-medium text-slate-500 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition-all whitespace-nowrap border border-slate-100"
+                          className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-all border border-blue-200 text-left flex items-center gap-1.5"
                         >
-                          ✏️ Edit Manual
+                          <span>✏️</span>
+                          <span>Edit Data</span>
+                        </button>
+                        <button
+                          onClick={() => quickToggleVerified(record)}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-all border text-left flex items-center gap-1.5 ${
+                            record.is_verified
+                              ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                              : "text-slate-500 hover:bg-slate-100 border-slate-200"
+                          }`}
+                        >
+                          <span>{record.is_verified ? "✓" : "○"}</span>
+                          <span>{record.is_verified ? "Terverifikasi" : "Verifikasi"}</span>
                         </button>
                       </div>
                     </td>
@@ -560,25 +710,25 @@ export default function TrackingTable({
           </table>
         </div>
 
-        {/* Pagination */}
+        {/* Pagination Ringan & Cepat */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-4 border-t border-slate-100 bg-slate-50">
-            <p className="text-sm text-slate-500">
-              Halaman {page} dari {totalPages}
+          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex-wrap gap-3">
+            <p className="text-xs font-medium text-slate-500">
+              Halaman <span className="font-bold text-slate-700">{page}</span> dari {totalPages}
             </p>
             <div className="flex gap-2">
               {page > 1 && (
                 <Link
-                  href={buildUrl({ page: String(page - 1) })}
-                  className="btn-secondary text-sm py-1.5 px-4"
+                  href={buildPageUrl(page - 1)}
+                  className="btn-secondary text-xs py-1.5 px-3.5 font-medium shadow-sm"
                 >
                   ← Sebelumnya
                 </Link>
               )}
               {page < totalPages && (
                 <Link
-                  href={buildUrl({ page: String(page + 1) })}
-                  className="btn-primary text-sm py-1.5 px-4"
+                  href={buildPageUrl(page + 1)}
+                  className="btn-primary text-xs py-1.5 px-4 font-medium shadow-sm"
                 >
                   Selanjutnya →
                 </Link>
@@ -588,51 +738,51 @@ export default function TrackingTable({
         )}
       </div>
 
-      {/* Modal Edit Manual */}
+      {/* Modal Edit Tracking Alumni */}
       {editingId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in"
             onClick={() => setEditingId(null)}
           />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto border border-slate-100">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 sticky top-0 bg-white/95 backdrop-blur z-10">
               <div>
-                <h2 className="font-bold text-slate-800">Edit Data Alumni</h2>
-                <p className="text-slate-400 text-sm">
-                  {editForm.nama_lulusan}
+                <h2 className="font-bold text-slate-800 text-lg">Edit Data Tracking Alumni</h2>
+                <p className="text-slate-400 text-xs mt-0.5">
+                  {editForm.nama_lulusan} {editForm.nim ? `(${editForm.nim})` : ""}
                 </p>
               </div>
               <button
                 onClick={() => setEditingId(null)}
-                className="text-slate-400 hover:text-slate-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100"
+                className="text-slate-400 hover:text-slate-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-base"
               >
                 ✕
               </button>
             </div>
 
-            <div className="px-6 py-5 space-y-4">
+            <div className="px-6 py-5 space-y-5">
               {/* Kontak */}
               <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-                  Kontak
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5">
+                  Informasi Kontak
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Email</label>
+                    <label className="label text-xs">Email</label>
                     <input
-                      className="input-field"
+                      className="input-field text-sm"
                       value={editForm.email || ""}
-                      placeholder="email@domain.com"
+                      placeholder="alumni@email.com"
                       onChange={(e) =>
                         setEditForm((p) => ({ ...p, email: e.target.value }))
                       }
                     />
                   </div>
                   <div>
-                    <label className="label">No. HP</label>
+                    <label className="label text-xs">No. Telepon / WhatsApp</label>
                     <input
-                      className="input-field"
+                      className="input-field text-sm"
                       value={editForm.no_hp || ""}
                       placeholder="08xxxxxxxxxx"
                       onChange={(e) =>
@@ -643,163 +793,64 @@ export default function TrackingTable({
                 </div>
               </div>
 
-              {/* Sosial Media */}
+              {/* Media Sosial */}
               <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-                  Sosial Media
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5">
+                  Sosial Media Alumni
                 </h3>
-                <div className="space-y-2">
-                  {[
-                    {
-                      key: "linkedin_url",
-                      label: "LinkedIn",
-                      ph: "https://linkedin.com/in/...",
-                    },
-                    {
-                      key: "instagram_url",
-                      label: "Instagram",
-                      ph: "https://instagram.com/...",
-                    },
-                    {
-                      key: "facebook_url",
-                      label: "Facebook",
-                      ph: "https://facebook.com/...",
-                    },
-                    {
-                      key: "tiktok_url",
-                      label: "TikTok",
-                      ph: "https://tiktok.com/@...",
-                    },
-                  ].map((f) => (
-                    <div key={f.key}>
-                      <label className="label">{f.label}</label>
-                      <input
-                        className="input-field"
-                        value={(editForm as any)[f.key] || ""}
-                        placeholder={f.ph}
-                        onChange={(e) =>
-                          setEditForm((p) => ({
-                            ...p,
-                            [f.key]: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Pekerjaan */}
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-                  Pekerjaan
-                </h3>
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Tempat Bekerja</label>
+                    <label className="label text-xs">LinkedIn URL</label>
                     <input
-                      className="input-field"
-                      value={editForm.tempat_bekerja || ""}
-                      placeholder="Nama perusahaan/instansi"
+                      className="input-field text-sm"
+                      value={editForm.linkedin_url || ""}
+                      placeholder="https://linkedin.com/in/..."
                       onChange={(e) =>
                         setEditForm((p) => ({
                           ...p,
-                          tempat_bekerja: e.target.value,
+                          linkedin_url: e.target.value,
                         }))
                       }
                     />
                   </div>
                   <div>
-                    <label className="label">Alamat Bekerja</label>
+                    <label className="label text-xs">Instagram URL</label>
                     <input
-                      className="input-field"
-                      value={editForm.alamat_bekerja || ""}
-                      placeholder="Kota / alamat"
-                      onChange={(e) =>
-                        setEditForm((p) => ({
-                          ...p,
-                          alamat_bekerja: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Posisi / Jabatan</label>
-                    <input
-                      className="input-field"
-                      value={editForm.posisi || ""}
-                      placeholder="Software Engineer, dll"
-                      onChange={(e) =>
-                        setEditForm((p) => ({ ...p, posisi: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Tipe Pekerjaan</label>
-                    <select
-                      className="input-field"
-                      value={editForm.tipe_pekerjaan || ""}
-                      onChange={(e) =>
-                        setEditForm((p) => ({
-                          ...p,
-                          tipe_pekerjaan: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Pilih</option>
-                      <option value="pns">PNS / ASN</option>
-                      <option value="swasta">Swasta</option>
-                      <option value="wirausaha">Wirausaha</option>
-                      <option value="other">Lainnya</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sosmed Tempat Kerja */}
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-                  Sosmed Tempat Bekerja
-                </h3>
-                <div className="space-y-2">
-                  <div>
-                    <label className="label">Website Perusahaan</label>
-                    <input
-                      className="input-field"
-                      value={editForm.company_website || ""}
-                      placeholder="https://..."
-                      onChange={(e) =>
-                        setEditForm((p) => ({
-                          ...p,
-                          company_website: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Instagram Perusahaan</label>
-                    <input
-                      className="input-field"
-                      value={editForm.company_instagram || ""}
+                      className="input-field text-sm"
+                      value={editForm.instagram_url || ""}
                       placeholder="https://instagram.com/..."
                       onChange={(e) =>
                         setEditForm((p) => ({
                           ...p,
-                          company_instagram: e.target.value,
+                          instagram_url: e.target.value,
                         }))
                       }
                     />
                   </div>
                   <div>
-                    <label className="label">LinkedIn Perusahaan</label>
+                    <label className="label text-xs">Facebook URL</label>
                     <input
-                      className="input-field"
-                      value={editForm.company_linkedin || ""}
-                      placeholder="https://linkedin.com/company/..."
+                      className="input-field text-sm"
+                      value={editForm.facebook_url || ""}
+                      placeholder="https://facebook.com/..."
                       onChange={(e) =>
                         setEditForm((p) => ({
                           ...p,
-                          company_linkedin: e.target.value,
+                          facebook_url: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="label text-xs">TikTok URL</label>
+                    <input
+                      className="input-field text-sm"
+                      value={editForm.tiktok_url || ""}
+                      placeholder="https://tiktok.com/@..."
+                      onChange={(e) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          tiktok_url: e.target.value,
                         }))
                       }
                     />
@@ -807,42 +858,138 @@ export default function TrackingTable({
                 </div>
               </div>
 
-              {/* Verifikasi */}
-              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                <input
-                  type="checkbox"
-                  id="is_verified"
-                  checked={editForm.is_verified || false}
-                  onChange={(e) =>
-                    setEditForm((p) => ({
-                      ...p,
-                      is_verified: e.target.checked,
-                    }))
-                  }
-                  className="w-4 h-4 accent-blue-600"
-                />
-                <label
-                  htmlFor="is_verified"
-                  className="text-sm text-slate-700 cursor-pointer"
-                >
-                  Tandai data ini sebagai terverifikasi
-                </label>
+              {/* Pekerjaan & Tempat Bekerja */}
+              <div>
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5">
+                  Data Karir & Pekerjaan
+                </h3>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label text-xs">Tempat Bekerja / Perusahaan</label>
+                      <input
+                        className="input-field text-sm"
+                        value={editForm.tempat_bekerja || ""}
+                        placeholder="Nama perusahaan/kantor/instansi"
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            tempat_bekerja: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs">Posisi / Jabatan</label>
+                      <input
+                        className="input-field text-sm"
+                        value={editForm.posisi || ""}
+                        placeholder="Staff, Manager, Engineer, dll"
+                        onChange={(e) =>
+                          setEditForm((p) => ({ ...p, posisi: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label text-xs">Kota / Alamat Bekerja</label>
+                      <input
+                        className="input-field text-sm"
+                        value={editForm.alamat_bekerja || ""}
+                        placeholder="Kota kantor (misal: Jakarta)"
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            alamat_bekerja: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs">Tipe Pekerjaan</label>
+                      <select
+                        className="input-field text-sm"
+                        value={editForm.tipe_pekerjaan || ""}
+                        onChange={(e) =>
+                          setEditForm((p) => ({
+                            ...p,
+                            tipe_pekerjaan: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Pilih tipe pekerjaan</option>
+                        <option value="pns">PNS / ASN</option>
+                        <option value="swasta">Swasta</option>
+                        <option value="wirausaha">Wirausaha</option>
+                        <option value="other">Lainnya</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Lacak & Verifikasi */}
+              <div className="pt-2 border-t border-slate-100">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5">
+                  Status Data
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="label text-xs">Status Pelacakan</label>
+                    <select
+                      className="input-field text-sm"
+                      value={editForm.search_status || "pending"}
+                      onChange={(e) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          search_status: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="pending">⏳ Belum Dilacak</option>
+                      <option value="found">✅ Ditemukan</option>
+                      <option value="not_found">❌ Belum Ditemukan</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 pt-6">
+                    <input
+                      type="checkbox"
+                      id="modal_is_verified"
+                      checked={editForm.is_verified || false}
+                      onChange={(e) =>
+                        setEditForm((p) => ({
+                          ...p,
+                          is_verified: e.target.checked,
+                        }))
+                      }
+                      className="w-4 h-4 accent-blue-600 rounded cursor-pointer"
+                    />
+                    <label
+                      htmlFor="modal_is_verified"
+                      className="text-xs font-semibold text-slate-700 cursor-pointer"
+                    >
+                      Tandai data ini terverifikasi
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex justify-between px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
+            <div className="flex justify-between items-center px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl sticky bottom-0">
               <button
                 onClick={() => setEditingId(null)}
-                className="btn-secondary text-sm py-2 px-4"
+                className="btn-secondary text-xs py-2 px-4 font-semibold"
               >
                 Batal
               </button>
               <button
                 onClick={saveEdit}
                 disabled={!!savingId}
-                className="btn-primary text-sm py-2 px-4"
+                className="btn-primary text-xs py-2 px-5 font-semibold shadow-sm"
               >
-                {savingId ? "Menyimpan..." : "Simpan Data"}
+                {savingId ? "Menyimpan..." : "Simpan Pembaruan"}
               </button>
             </div>
           </div>
