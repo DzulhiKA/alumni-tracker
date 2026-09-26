@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useTransition } from "react"
+import { useState, useEffect, useTransition, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 
@@ -43,13 +43,15 @@ interface Props {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  found: "bg-emerald-100 text-emerald-700",
-  not_found: "bg-rose-100 text-rose-600",
+  pending: "bg-amber-100 text-amber-800",
+  searching: "bg-blue-100 text-blue-700 animate-pulse",
+  found: "bg-emerald-100 text-emerald-800",
+  not_found: "bg-rose-100 text-rose-700",
 }
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "⏳ Belum Dilacak",
+  searching: "🔍 Sedang Melacak...",
   found: "✅ Ditemukan",
   not_found: "❌ Belum Ditemukan",
 }
@@ -80,7 +82,13 @@ export default function TrackingTable({
   const [savingId, setSavingId] = useState<string | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
-  // Local filter states for smooth instant feedback
+  // Tracking states
+  const [searchingId, setSearchingId] = useState<string | null>(null)
+  const [searchingAll, setSearchingAll] = useState(false)
+  const [searchProgress, setSearchProgress] = useState(0)
+  const cancelSearchRef = useRef(false)
+
+  // Filter states
   const [searchVal, setSearchVal] = useState(params.q ?? "")
   const [statusVal, setStatusVal] = useState(params.status ?? "")
   const [fakultasVal, setFakultasVal] = useState(params.fakultas ?? "")
@@ -99,12 +107,11 @@ export default function TrackingTable({
     setTahunVal(params.tahun ?? "")
   }, [params])
 
-  // Tampilkan notifikasi singkat
   const showToast = (msg: string) => {
     setToastMessage(msg)
     setTimeout(() => {
       setToastMessage(null)
-    }, 3000)
+    }, 3500)
   }
 
   // Trigger navigasi filter cepat tanpa reload browser
@@ -115,7 +122,7 @@ export default function TrackingTable({
       fakultas: fakultasVal,
       prodi: prodiVal,
       tahun: tahunVal,
-      page: "1", // reset ke halaman 1 saat filter berubah
+      page: "1",
       ...overrides,
     }
 
@@ -142,6 +149,105 @@ export default function TrackingTable({
       .map(([k, v]) => `${k}=${encodeURIComponent(v!)}`)
       .join("&")
     return `/admin/tracking${qs ? `?${qs}` : ""}`
+  }
+
+  // Lacak otomatis 1 alumni via Google / Social search API
+  const triggerOnlineSearch = async (record: AlumniRecord) => {
+    setSearchingId(record.id)
+    setLocalRecords((prev) =>
+      prev.map((r) =>
+        r.id === record.id ? { ...r, search_status: "searching" } : r,
+      ),
+    )
+
+    try {
+      const res = await fetch("/api/admin/google-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recordId: record.id,
+          nama: record.nama_lulusan,
+          nim: record.nim,
+          prodi: record.program_studi,
+          fakultas: record.fakultas,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (res.ok && data.success) {
+        setLocalRecords((prev) =>
+          prev.map((r) =>
+            r.id === record.id
+              ? {
+                  ...r,
+                  search_status: data.found ? "found" : "not_found",
+                  linkedin_url: data.linkedin || r.linkedin_url,
+                  instagram_url: data.instagram || r.instagram_url,
+                  facebook_url: data.facebook || r.facebook_url,
+                  tiktok_url: data.tiktok || r.tiktok_url,
+                  last_searched_at: new Date().toISOString(),
+                }
+              : r,
+          ),
+        )
+        if (data.found) {
+          showToast(`Sosmed/Karir untuk ${record.nama_lulusan} ditemukan!`)
+        } else {
+          showToast(`Pencarian selesai untuk ${record.nama_lulusan} (belum ditemukan link langsung)`)
+        }
+      } else {
+        setLocalRecords((prev) =>
+          prev.map((r) =>
+            r.id === record.id ? { ...r, search_status: "pending" } : r,
+          ),
+        )
+        showToast(`Info: ${data.error || "Pencarian tidak dapat diselesaikan"}`)
+      }
+    } catch (err: any) {
+      setLocalRecords((prev) =>
+        prev.map((r) =>
+          r.id === record.id ? { ...r, search_status: "pending" } : r,
+        ),
+      )
+      showToast(`Error: ${err.message}`)
+    } finally {
+      setSearchingId(null)
+    }
+  }
+
+  // Lacak otomatis semua record status pending di halaman ini
+  const triggerSearchAllPending = async () => {
+    const pendingList = localRecords.filter((r) => r.search_status === "pending")
+    if (pendingList.length === 0) {
+      showToast("Tidak ada data dengan status pending di halaman ini")
+      return
+    }
+
+    setSearchingAll(true)
+    cancelSearchRef.current = false
+    setSearchProgress(0)
+
+    for (let i = 0; i < pendingList.length; i++) {
+      if (cancelSearchRef.current) {
+        showToast("Pelacakan otomatis dihentikan")
+        break
+      }
+      await triggerOnlineSearch(pendingList[i])
+      setSearchProgress(Math.round(((i + 1) / pendingList.length) * 100))
+      // Jeda 1.5 detik per item agar stabil
+      if (i < pendingList.length - 1) {
+        await new Promise((r) => setTimeout(r, 1500))
+      }
+    }
+
+    setSearchingAll(false)
+    setSearchProgress(0)
+  }
+
+  const cancelSearchAll = () => {
+    cancelSearchRef.current = true
+    setSearchingAll(false)
   }
 
   // Edit manual alumni record
@@ -206,7 +312,6 @@ export default function TrackingTable({
         }`,
       )
     } catch {
-      // rollback jika gagal
       setLocalRecords((prev) =>
         prev.map((r) =>
           r.id === record.id ? { ...r, search_status: record.search_status } : r,
@@ -239,7 +344,6 @@ export default function TrackingTable({
         }`,
       )
     } catch {
-      // rollback
       setLocalRecords((prev) =>
         prev.map((r) =>
           r.id === record.id ? { ...r, is_verified: record.is_verified } : r,
@@ -302,6 +406,10 @@ export default function TrackingTable({
     })
   }
 
+  const pendingCountOnPage = localRecords.filter(
+    (r) => r.search_status === "pending",
+  ).length
+
   return (
     <div className="space-y-4">
       {/* Toast Notification */}
@@ -312,7 +420,7 @@ export default function TrackingTable({
         </div>
       )}
 
-      {/* Filter & Search Panel Responsif */}
+      {/* Filter & Search Panel */}
       <div className="card p-5 space-y-3.5 shadow-sm border border-slate-200/80 bg-white">
         {/* Search Bar */}
         <form onSubmit={handleSearchSubmit} className="flex gap-2.5 flex-wrap sm:flex-nowrap">
@@ -323,7 +431,7 @@ export default function TrackingTable({
             <input
               value={searchVal}
               onChange={(e) => setSearchVal(e.target.value)}
-              placeholder="Cari berdasarkan nama lulusan, NIM, atau tempat kerja..."
+              placeholder="Cari nama lulusan, NIM, atau tempat kerja..."
               className="input-field pl-9 pr-8 text-sm w-full py-2.5 bg-slate-50 focus:bg-white"
             />
             {searchVal && (
@@ -463,17 +571,41 @@ export default function TrackingTable({
         )}
       </div>
 
-      {/* Toolbar Info */}
+      {/* Toolbar Info & Batch Tracking Action */}
       <div className="flex items-center justify-between flex-wrap gap-3 px-1">
-        <p className="text-sm text-slate-600">
-          Ditemukan <span className="font-bold text-slate-900">{total.toLocaleString("id-ID")}</span> data
-          {" · "}Halaman <span className="font-semibold text-slate-800">{page}</span> dari {totalPages}
-        </p>
-        {isPending && (
-          <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-200 animate-pulse">
-            <span>Memperbarui data...</span>
-          </div>
-        )}
+        <div>
+          <p className="text-sm text-slate-600">
+            Ditemukan <span className="font-bold text-slate-900">{total.toLocaleString("id-ID")}</span> data
+            {" · "}Halaman <span className="font-semibold text-slate-800">{page}</span> dari {totalPages}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {searchingAll ? (
+            <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl">
+              <div className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-semibold text-blue-700">
+                Melacak otomatis {searchProgress}%
+              </span>
+              <button
+                onClick={cancelSearchAll}
+                className="text-xs text-red-600 hover:text-red-800 font-bold ml-1"
+              >
+                Batalkan
+              </button>
+            </div>
+          ) : (
+            pendingCountOnPage > 0 && (
+              <button
+                onClick={triggerSearchAllPending}
+                className="btn-primary text-xs py-2 px-3.5 flex items-center gap-1.5 font-semibold shadow-sm"
+              >
+                <span>🚀</span>
+                <span>Lacak Semua Pending ({pendingCountOnPage})</span>
+              </button>
+            )
+          )}
+        </div>
       </div>
 
       {/* Tabel Data Alumni Tracking */}
@@ -488,7 +620,7 @@ export default function TrackingTable({
                   "Kontak & Media Sosial",
                   "Pekerjaan & Instansi",
                   "Status Tracking",
-                  "Aksi",
+                  "Aksi & Pencarian Online",
                 ].map((h) => (
                   <th
                     key={h}
@@ -577,7 +709,7 @@ export default function TrackingTable({
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-0.5 rounded-md font-semibold transition-all"
-                            title="LinkedIn"
+                            title="LinkedIn Profil"
                           >
                             LinkedIn ↗
                           </a>
@@ -588,7 +720,7 @@ export default function TrackingTable({
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs bg-pink-100 hover:bg-pink-200 text-pink-700 px-2 py-0.5 rounded-md font-semibold transition-all"
-                            title="Instagram"
+                            title="Instagram Profil"
                           >
                             IG ↗
                           </a>
@@ -599,7 +731,7 @@ export default function TrackingTable({
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md font-semibold transition-all"
-                            title="Facebook"
+                            title="Facebook Profil"
                           >
                             FB ↗
                           </a>
@@ -610,7 +742,7 @@ export default function TrackingTable({
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-800 px-2 py-0.5 rounded-md font-semibold transition-all"
-                            title="TikTok"
+                            title="TikTok Profil"
                           >
                             TikTok ↗
                           </a>
@@ -622,7 +754,7 @@ export default function TrackingTable({
                           !record.email &&
                           !record.no_hp && (
                             <span className="text-xs text-slate-300 italic">
-                              Belum ada data kontak
+                              Belum ada data
                             </span>
                           )}
                       </div>
@@ -680,27 +812,71 @@ export default function TrackingTable({
                       )}
                     </td>
 
-                    {/* Aksi */}
+                    {/* Aksi & Tracking Online */}
                     <td className="px-4 py-3.5 align-top">
-                      <div className="flex flex-col gap-1.5">
+                      <div className="flex flex-col gap-1.5 min-w-36">
+                        {/* Auto Tracking Search Button */}
                         <button
-                          onClick={() => startEdit(record)}
-                          className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-all border border-blue-200 text-left flex items-center gap-1.5"
+                          onClick={() => triggerOnlineSearch(record)}
+                          disabled={searchingId === record.id || searchingAll}
+                          className="text-xs font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-all border border-blue-200 text-left flex items-center justify-between gap-1.5 disabled:opacity-50"
                         >
-                          <span>✏️</span>
-                          <span>Edit Data</span>
+                          <span className="flex items-center gap-1.5">
+                            {searchingId === record.id ? (
+                              <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin inline-block" />
+                            ) : (
+                              <span>🔍</span>
+                            )}
+                            <span>{searchingId === record.id ? "Melacak..." : "Lacak Otomatis"}</span>
+                          </span>
                         </button>
-                        <button
-                          onClick={() => quickToggleVerified(record)}
-                          className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-all border text-left flex items-center gap-1.5 ${
-                            record.is_verified
-                              ? "text-emerald-700 bg-emerald-50 border-emerald-200"
-                              : "text-slate-500 hover:bg-slate-100 border-slate-200"
-                          }`}
-                        >
-                          <span>{record.is_verified ? "✓" : "○"}</span>
-                          <span>{record.is_verified ? "Terverifikasi" : "Verifikasi"}</span>
-                        </button>
+
+                        <div className="flex items-center gap-1">
+                          {/* Direct Google search link */}
+                          <a
+                            href={`https://www.google.com/search?q=${encodeURIComponent(
+                              `"${record.nama_lulusan}" ${record.program_studi || record.fakultas || ""} alumni linkedin OR instagram`,
+                            )}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] font-medium text-slate-600 hover:text-blue-600 bg-slate-50 hover:bg-slate-100 px-2 py-1 rounded border border-slate-200 text-center flex-1"
+                            title="Buka pencarian Google langsung di tab baru"
+                          >
+                            🌐 Google
+                          </a>
+                          {/* Direct LinkedIn search link */}
+                          <a
+                            href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(
+                              record.nama_lulusan,
+                            )}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] font-medium text-blue-700 hover:text-blue-900 bg-blue-50/70 hover:bg-blue-100 px-2 py-1 rounded border border-blue-200 text-center flex-1"
+                            title="Cari profil di LinkedIn"
+                          >
+                            💼 LinkedIn
+                          </a>
+                        </div>
+
+                        {/* Edit Manual & Verify */}
+                        <div className="flex items-center gap-1 pt-0.5">
+                          <button
+                            onClick={() => startEdit(record)}
+                            className="text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 px-2 py-1 rounded border border-slate-200 flex-1 text-center"
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            onClick={() => quickToggleVerified(record)}
+                            className={`text-[11px] font-medium px-2 py-1 rounded border flex-1 text-center ${
+                              record.is_verified
+                                ? "text-emerald-700 bg-emerald-50 border-emerald-200 font-semibold"
+                                : "text-slate-500 hover:bg-slate-100 border-slate-200"
+                            }`}
+                          >
+                            {record.is_verified ? "✓ Terverifikasi" : "○ Verifikasi"}
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>
